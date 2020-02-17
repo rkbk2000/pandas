@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from pandas import Index, IntervalIndex, Timestamp, interval_range
-import pandas.util.testing as tm
+import pandas._testing as tm
 
 
 @pytest.fixture(scope="class", params=[None, "foo"])
@@ -180,8 +180,8 @@ class TestIntervalIndex:
         # GH 19016: incompatible dtypes
         other = interval_range(Timestamp("20180101"), periods=9, closed=closed)
         msg = (
-            "can only do {op} between two IntervalIndex objects that have "
+            f"can only do {op_name} between two IntervalIndex objects that have "
             "compatible dtypes"
-        ).format(op=op_name)
+        )
         with pytest.raises(TypeError, match=msg):
             set_op(other, sort=sort)

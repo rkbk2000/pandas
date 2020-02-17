@@ -20,7 +20,7 @@ Cython (writing C extensions for pandas)
 
 For many use cases writing pandas in pure Python and NumPy is sufficient. In some
 computationally heavy applications however, it can be possible to achieve sizable
-speed-ups by offloading work to `cython <http://cython.org/>`__.
+speed-ups by offloading work to `cython <https://cython.org/>`__.
 
 This tutorial assumes you have refactored as much as possible in Python, for example
 by trying to remove for-loops and making use of NumPy vectorization. It's always worth
@@ -69,7 +69,7 @@ We achieve our result by using ``apply`` (row-wise):
 
 But clearly this isn't fast enough for us. Let's take a look and see where the
 time is spent during this operation (limited to the most time consuming
-four calls) using the `prun ipython magic function <http://ipython.org/ipython-doc/stable/api/generated/IPython.core.magics.execution.html#IPython.core.magics.execution.ExecutionMagics.prun>`__:
+four calls) using the `prun ipython magic function <https://ipython.readthedocs.io/en/stable/interactive/magics.html#magic-prun>`__:
 
 .. ipython:: python
 
@@ -77,11 +77,6 @@ four calls) using the `prun ipython magic function <http://ipython.org/ipython-d
 
 By far the majority of time is spend inside either ``integrate_f`` or ``f``,
 hence we'll concentrate our efforts cythonizing these two functions.
-
-.. note::
-
-  In Python 2 replacing the ``range`` with its generator counterpart (``xrange``)
-  would mean the ``range`` line would vanish. In Python 3 ``range`` is already a generator.
 
 .. _enhancingperf.plain:
 
@@ -243,9 +238,9 @@ We've gotten another big improvement. Let's check again where the time is spent:
 
 .. ipython:: python
 
-   %prun -l 4 apply_integrate_f(df['a'].to_numpy(),
-                                df['b'].to_numpy(),
-                                df['N'].to_numpy())
+   %%prun -l 4 apply_integrate_f(df['a'].to_numpy(),
+                                 df['b'].to_numpy(),
+                                 df['N'].to_numpy())
 
 As one might expect, the majority of the time is now spent in ``apply_integrate_f``,
 so if we wanted to make anymore efficiencies we must continue to concentrate our
@@ -298,7 +293,7 @@ advanced Cython techniques:
 Even faster, with the caveat that a bug in our Cython code (an off-by-one error,
 for example) might cause a segfault because memory access isn't checked.
 For more about ``boundscheck`` and ``wraparound``, see the Cython docs on
-`compiler directives <http://cython.readthedocs.io/en/latest/src/reference/compilation.html?highlight=wraparound#compiler-directives>`__.
+`compiler directives <https://cython.readthedocs.io/en/latest/src/reference/compilation.html?highlight=wraparound#compiler-directives>`__.
 
 .. _enhancingperf.numba:
 
@@ -393,15 +388,15 @@ Consider the following toy example of doubling each observation:
 .. code-block:: ipython
 
    # Custom function without numba
-   In [5]: %timeit df['col1_doubled'] = df.a.apply(double_every_value_nonumba)  # noqa E501
+   In [5]: %timeit df['col1_doubled'] = df['a'].apply(double_every_value_nonumba)  # noqa E501
    1000 loops, best of 3: 797 us per loop
 
    # Standard implementation (faster than a custom function)
-   In [6]: %timeit df['col1_doubled'] = df.a * 2
+   In [6]: %timeit df['col1_doubled'] = df['a'] * 2
    1000 loops, best of 3: 233 us per loop
 
    # Custom function with numba
-   In [7]: %timeit (df['col1_doubled'] = double_every_value_withnumba(df.a.to_numpy())
+   In [7]: %timeit (df['col1_doubled'] = double_every_value_withnumba(df['a'].to_numpy())
    1000 loops, best of 3: 145 us per loop
 
 Caveats
@@ -423,9 +418,9 @@ prefer that Numba throw an error if it cannot compile a function in a way that
 speeds up your code, pass Numba the argument
 ``nopython=True`` (e.g.  ``@numba.jit(nopython=True)``). For more on
 troubleshooting Numba modes, see the `Numba troubleshooting page
-<http://numba.pydata.org/numba-doc/latest/user/troubleshoot.html#the-compiled-code-is-too-slow>`__.
+<https://numba.pydata.org/numba-doc/latest/user/troubleshoot.html#the-compiled-code-is-too-slow>`__.
 
-Read more in the `Numba docs <http://numba.pydata.org/>`__.
+Read more in the `Numba docs <https://numba.pydata.org/>`__.
 
 .. _enhancingperf.eval:
 
@@ -643,8 +638,8 @@ The equivalent in standard Python would be
 .. ipython:: python
 
    df = pd.DataFrame(dict(a=range(5), b=range(5, 10)))
-   df['c'] = df.a + df.b
-   df['d'] = df.a + df.b + df.c
+   df['c'] = df['a'] + df['b']
+   df['d'] = df['a'] + df['b'] + df['c']
    df['a'] = 1
    df
 
@@ -688,7 +683,7 @@ name in an expression.
 
    a = np.random.randn()
    df.query('@a < a')
-   df.loc[a < df.a]  # same as the previous expression
+   df.loc[a < df['a']]  # same as the previous expression
 
 With :func:`pandas.eval` you cannot use the ``@`` prefix *at all*, because it
 isn't defined in that context. ``pandas`` will let you know this if you try to

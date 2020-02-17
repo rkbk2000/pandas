@@ -4,23 +4,23 @@ import numpy as np
 import pytest
 
 from pandas import DataFrame, Index, MultiIndex, RangeIndex, Series
-import pandas.util.testing as tm
+import pandas._testing as tm
 
 
 class TestSeriesAlterAxes:
     def test_setindex(self, string_series):
         # wrong type
         msg = (
-            r"Index\(\.\.\.\) must be called with a collection of some"
-            r" kind, None was passed"
+            r"Index\(\.\.\.\) must be called with a collection of some "
+            r"kind, None was passed"
         )
         with pytest.raises(TypeError, match=msg):
             string_series.index = None
 
         # wrong length
         msg = (
-            "Length mismatch: Expected axis has 30 elements, new"
-            " values have 29 elements"
+            "Length mismatch: Expected axis has 30 elements, "
+            "new values have 29 elements"
         )
         with pytest.raises(ValueError, match=msg):
             string_series.index = np.arange(len(string_series) - 1)
@@ -83,8 +83,9 @@ class TestSeriesAlterAxes:
         s = Series(range(5))
         s.rename({}, axis=0)
         s.rename({}, axis="index")
-        with pytest.raises(ValueError, match="No axis named 5"):
-            s.rename({}, axis=5)
+        # TODO: clean up shared index validation
+        # with pytest.raises(ValueError, match="No axis named 5"):
+        #     s.rename({}, axis=5)
 
     def test_set_name_attribute(self):
         s = Series([1, 2, 3])
@@ -233,7 +234,7 @@ class TestSeriesAlterAxes:
     def test_rename_axis_mapper(self):
         # GH 19978
         mi = MultiIndex.from_product([["a", "b", "c"], [1, 2]], names=["ll", "nn"])
-        s = Series([i for i in range(len(mi))], index=mi)
+        s = Series(list(range(len(mi))), index=mi)
 
         result = s.rename_axis(index={"ll": "foo"})
         assert result.index.names == ["foo", "nn"]
@@ -267,6 +268,25 @@ class TestSeriesAlterAxes:
         expected = Series([1, 2, 3], index=expected_index)
         tm.assert_series_equal(result, expected)
 
+    def test_rename_with_custom_indexer(self):
+        # GH 27814
+        class MyIndexer:
+            pass
+
+        ix = MyIndexer()
+        s = Series([1, 2, 3]).rename(ix)
+        assert s.name is ix
+
+    def test_rename_with_custom_indexer_inplace(self):
+        # GH 27814
+        class MyIndexer:
+            pass
+
+        ix = MyIndexer()
+        s = Series([1, 2, 3])
+        s.rename(ix, inplace=True)
+        assert s.name is ix
+
     def test_set_axis_inplace_axes(self, axis_series):
         # GH14636
         ser = Series(np.arange(4), index=[1, 3, 5, 7], dtype="int64")
@@ -277,12 +297,9 @@ class TestSeriesAlterAxes:
         # inplace=True
         # The FutureWarning comes from the fact that we would like to have
         # inplace default to False some day
-        for inplace, warn in [(None, FutureWarning), (True, None)]:
-            result = ser.copy()
-            kwargs = {"inplace": inplace}
-            with tm.assert_produces_warning(warn):
-                result.set_axis(list("abcd"), axis=axis_series, **kwargs)
-            tm.assert_series_equal(result, expected)
+        result = ser.copy()
+        result.set_axis(list("abcd"), axis=axis_series, inplace=True)
+        tm.assert_series_equal(result, expected)
 
     def test_set_axis_inplace(self):
         # GH14636
@@ -306,25 +323,14 @@ class TestSeriesAlterAxes:
             with pytest.raises(ValueError, match="No axis named"):
                 s.set_axis(list("abcd"), axis=axis, inplace=False)
 
-    def test_set_axis_prior_to_deprecation_signature(self):
-        s = Series(np.arange(4), index=[1, 3, 5, 7], dtype="int64")
-
-        expected = s.copy()
-        expected.index = list("abcd")
-
-        for axis in [0, "index"]:
-            with tm.assert_produces_warning(FutureWarning):
-                result = s.set_axis(0, list("abcd"), inplace=False)
-            tm.assert_series_equal(result, expected)
-
     def test_reset_index_drop_errors(self):
         #  GH 20925
 
         # KeyError raised for series index when passed level name is missing
         s = Series(range(4))
-        with pytest.raises(KeyError, match="must be same as name"):
+        with pytest.raises(KeyError, match="does not match index name"):
             s.reset_index("wrong", drop=True)
-        with pytest.raises(KeyError, match="must be same as name"):
+        with pytest.raises(KeyError, match="does not match index name"):
             s.reset_index("wrong")
 
         # KeyError raised for series when level to be dropped is missing

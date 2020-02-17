@@ -1,10 +1,11 @@
-"""Test extension array for storing nested data in a pandas container.
+"""
+Test extension array for storing nested data in a pandas container.
 
 The JSONArray stores lists of dictionaries. The storage mechanism is a list,
 not an ndarray.
 
-Note:
-
+Note
+----
 We currently store lists of UserDicts. Pandas has a few places
 internally that specifically check for dicts, and does non-scalar things
 in that case. We *want* the dictionaries to be treated as scalars, so we
@@ -16,35 +17,29 @@ import numbers
 import random
 import string
 import sys
+from typing import Any, Mapping, Type
 
 import numpy as np
 
-from pandas.core.dtypes.base import ExtensionDtype
-
-from pandas.core.arrays import ExtensionArray
+import pandas as pd
+from pandas.api.extensions import ExtensionArray, ExtensionDtype
 
 
 class JSONDtype(ExtensionDtype):
     type = abc.Mapping
     name = "json"
-    na_value = UserDict()
+    na_value: Mapping[str, Any] = UserDict()
 
     @classmethod
-    def construct_array_type(cls):
-        """Return the array type associated with this dtype
+    def construct_array_type(cls) -> Type["JSONArray"]:
+        """
+        Return the array type associated with this dtype.
 
         Returns
         -------
         type
         """
         return JSONArray
-
-    @classmethod
-    def construct_from_string(cls, string):
-        if string == cls.name:
-            return cls()
-        else:
-            raise TypeError("Cannot construct a '{}' from '{}'".format(cls, string))
 
 
 class JSONArray(ExtensionArray):
@@ -75,14 +70,18 @@ class JSONArray(ExtensionArray):
     def __getitem__(self, item):
         if isinstance(item, numbers.Integral):
             return self.data[item]
-        elif isinstance(item, np.ndarray) and item.dtype == "bool":
-            return self._from_sequence([x for x, m in zip(self, item) if m])
-        elif isinstance(item, abc.Iterable):
-            # fancy indexing
-            return type(self)([self.data[i] for i in item])
-        else:
+        elif isinstance(item, slice) and item == slice(None):
+            # Make sure we get a view
+            return type(self)(self.data)
+        elif isinstance(item, slice):
             # slice
             return type(self)(self.data[item])
+        else:
+            item = pd.api.indexers.check_array_indexer(self, item)
+            if pd.api.types.is_bool_dtype(item.dtype):
+                return self._from_sequence([x for x, m in zip(self, item) if m])
+            # integer
+            return type(self)([self.data[i] for i in item])
 
     def __setitem__(self, key, value):
         if isinstance(key, numbers.Integral):
@@ -103,11 +102,16 @@ class JSONArray(ExtensionArray):
                     assert isinstance(v, self.dtype.type)
                     self.data[k] = v
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.data)
 
+    def __array__(self, dtype=None):
+        if dtype is None:
+            dtype = object
+        return np.asarray(self.data, dtype=dtype)
+
     @property
-    def nbytes(self):
+    def nbytes(self) -> int:
         return sys.getsizeof(self.data)
 
     def isna(self):
@@ -179,7 +183,7 @@ class JSONArray(ExtensionArray):
 
     def _values_for_argsort(self):
         # Disable NumPy's shape inference by including an empty tuple...
-        # If all the elemnts of self are the same size P, NumPy will
+        # If all the elements of self are the same size P, NumPy will
         # cast them to an (N, P) array, instead of an (N,) array of tuples.
         frozen = [()] + [tuple(x.items()) for x in self]
         return np.array(frozen, dtype=object)[1:]

@@ -12,14 +12,11 @@ from pandas.core.dtypes.generic import ABCDataFrame, ABCIndexClass, ABCSeries
 
 def format_date_labels(ax, rot):
     # mini version of autofmt_xdate
-    try:
-        for label in ax.get_xticklabels():
-            label.set_ha("right")
-            label.set_rotation(rot)
-        fig = ax.get_figure()
-        fig.subplots_adjust(bottom=0.2)
-    except Exception:  # pragma: no cover
-        pass
+    for label in ax.get_xticklabels():
+        label.set_ha("right")
+        label.set_rotation(rot)
+    fig = ax.get_figure()
+    fig.subplots_adjust(bottom=0.2)
 
 
 def table(ax, data, rowLabels=None, colLabels=None, **kwargs):
@@ -63,10 +60,7 @@ def _get_layout(nplots, layout=None, layout_type="box"):
 
         if nrows * ncols < nplots:
             raise ValueError(
-                "Layout of {nrows}x{ncols} must be larger "
-                "than required size {nplots}".format(
-                    nrows=nrows, ncols=ncols, nplots=nplots
-                )
+                f"Layout of {nrows}x{ncols} must be larger than required size {nplots}"
             )
 
         return layout
@@ -104,15 +98,16 @@ def _subplots(
     ax=None,
     layout=None,
     layout_type="box",
-    **fig_kw
+    **fig_kw,
 ):
-    """Create a figure with a set of subplots already made.
+    """
+    Create a figure with a set of subplots already made.
 
     This utility wrapper makes it convenient to create common layouts of
     subplots, including the enclosing figure object, in a single call.
 
-    Keyword arguments:
-
+    Parameters
+    ----------
     naxes : int
       Number of required axes. Exceeded axes are set invisible. Default is
       nrows * ncols.
@@ -152,16 +147,16 @@ def _subplots(
         Note that all keywords not recognized above will be
         automatically included here.
 
-    Returns:
-
+    Returns
+    -------
     fig, ax : tuple
       - fig is the Matplotlib Figure object
       - ax can be either a single axis object or an array of axis objects if
       more than one subplot was created.  The dimensions of the resulting array
       can be controlled with the squeeze keyword, see above.
 
-    **Examples:**
-
+    Examples
+    --------
     x = np.linspace(0, 2*np.pi, 400)
     y = np.sin(x**2)
 
@@ -191,14 +186,12 @@ def _subplots(
             ax = _flatten(ax)
             if layout is not None:
                 warnings.warn(
-                    "When passing multiple axes, layout keyword is " "ignored",
-                    UserWarning,
+                    "When passing multiple axes, layout keyword is ignored", UserWarning
                 )
             if sharex or sharey:
                 warnings.warn(
                     "When passing multiple axes, sharex and sharey "
-                    "are ignored. These settings must be specified "
-                    "when creating axes",
+                    "are ignored. These settings must be specified when creating axes",
                     UserWarning,
                     stacklevel=4,
                 )
@@ -207,8 +200,8 @@ def _subplots(
                 return fig, ax
             else:
                 raise ValueError(
-                    "The number of passed axes must be {0}, the "
-                    "same as the output plot".format(naxes)
+                    f"The number of passed axes must be {naxes}, the "
+                    "same as the output plot"
                 )
 
         fig = ax.get_figure()
@@ -281,17 +274,15 @@ def _remove_labels_from_axis(axis):
     for t in axis.get_majorticklabels():
         t.set_visible(False)
 
-    try:
-        # set_visible will not be effective if
-        # minor axis has NullLocator and NullFormattor (default)
-        if isinstance(axis.get_minor_locator(), ticker.NullLocator):
-            axis.set_minor_locator(ticker.AutoLocator())
-        if isinstance(axis.get_minor_formatter(), ticker.NullFormatter):
-            axis.set_minor_formatter(ticker.FormatStrFormatter(""))
-        for t in axis.get_minorticklabels():
-            t.set_visible(False)
-    except Exception:  # pragma no cover
-        raise
+    # set_visible will not be effective if
+    # minor axis has NullLocator and NullFormattor (default)
+    if isinstance(axis.get_minor_locator(), ticker.NullLocator):
+        axis.set_minor_locator(ticker.AutoLocator())
+    if isinstance(axis.get_minor_formatter(), ticker.NullFormatter):
+        axis.set_minor_formatter(ticker.FormatStrFormatter(""))
+    for t in axis.get_minorticklabels():
+        t.set_visible(False)
+
     axis.get_label().set_visible(False)
 
 
@@ -343,6 +334,21 @@ def _flatten(axes):
     return np.array(axes)
 
 
+def _set_ticks_props(axes, xlabelsize=None, xrot=None, ylabelsize=None, yrot=None):
+    import matplotlib.pyplot as plt
+
+    for ax in _flatten(axes):
+        if xlabelsize is not None:
+            plt.setp(ax.get_xticklabels(), fontsize=xlabelsize)
+        if xrot is not None:
+            plt.setp(ax.get_xticklabels(), rotation=xrot)
+        if ylabelsize is not None:
+            plt.setp(ax.get_yticklabels(), fontsize=ylabelsize)
+        if yrot is not None:
+            plt.setp(ax.get_yticklabels(), rotation=yrot)
+    return axes
+
+
 def _get_all_lines(ax):
     lines = ax.get_lines()
 
@@ -362,18 +368,3 @@ def _get_xlim(lines):
         left = min(np.nanmin(x), left)
         right = max(np.nanmax(x), right)
     return left, right
-
-
-def _set_ticks_props(axes, xlabelsize=None, xrot=None, ylabelsize=None, yrot=None):
-    import matplotlib.pyplot as plt
-
-    for ax in _flatten(axes):
-        if xlabelsize is not None:
-            plt.setp(ax.get_xticklabels(), fontsize=xlabelsize)
-        if xrot is not None:
-            plt.setp(ax.get_xticklabels(), rotation=xrot)
-        if ylabelsize is not None:
-            plt.setp(ax.get_yticklabels(), fontsize=ylabelsize)
-        if yrot is not None:
-            plt.setp(ax.get_yticklabels(), rotation=yrot)
-    return axes

@@ -1,9 +1,17 @@
+from typing import Type, Union
+
 import numpy as np
 import pytest
 
+from pandas._libs import OutOfBoundsDatetime
+from pandas.compat.numpy import _np_version_under1p18
+
 import pandas as pd
+import pandas._testing as tm
 from pandas.core.arrays import DatetimeArray, PeriodArray, TimedeltaArray
-import pandas.util.testing as tm
+from pandas.core.indexes.datetimes import DatetimeIndex
+from pandas.core.indexes.period import PeriodIndex
+from pandas.core.indexes.timedeltas import TimedeltaIndex
 
 
 # TODO: more freq variants
@@ -33,8 +41,8 @@ def datetime_index(request):
     """
     freqstr = request.param
     # TODO: non-monotone indexes; NaTs, different start dates, timezones
-    pi = pd.date_range(start=pd.Timestamp("2000-01-01"), periods=100, freq=freqstr)
-    return pi
+    dti = pd.date_range(start=pd.Timestamp("2000-01-01"), periods=100, freq=freqstr)
+    return dti
 
 
 @pytest.fixture
@@ -50,15 +58,15 @@ def timedelta_index(request):
 
 
 class SharedTests:
-    index_cls = None
+    index_cls: Type[Union[DatetimeIndex, PeriodIndex, TimedeltaIndex]]
 
     def test_compare_len1_raises(self):
         # make sure we raise when comparing with different lengths, specific
         #  to the case where one has length-1, which numpy would broadcast
         data = np.arange(10, dtype="i8") * 24 * 3600 * 10 ** 9
 
-        idx = self.index_cls._simple_new(data, freq="D")
-        arr = self.array_cls(idx)
+        idx = self.array_cls._simple_new(data, freq="D")
+        arr = self.index_cls(idx)
 
         with pytest.raises(ValueError, match="Lengths must match"):
             arr == arr[:1]
@@ -71,8 +79,8 @@ class SharedTests:
         data = np.arange(100, dtype="i8") * 24 * 3600 * 10 ** 9
         np.random.shuffle(data)
 
-        idx = self.index_cls._simple_new(data, freq="D")
-        arr = self.array_cls(idx)
+        arr = self.array_cls._simple_new(data, freq="D")
+        idx = self.index_cls._simple_new(arr)
 
         takers = [1, 4, 94]
         result = arr.take(takers)
@@ -89,8 +97,7 @@ class SharedTests:
     def test_take_fill(self):
         data = np.arange(10, dtype="i8") * 24 * 3600 * 10 ** 9
 
-        idx = self.index_cls._simple_new(data, freq="D")
-        arr = self.array_cls(idx)
+        arr = self.array_cls._simple_new(data, freq="D")
 
         result = arr.take([-1, 1], allow_fill=True, fill_value=None)
         assert result[0] is pd.NaT
@@ -113,7 +120,9 @@ class SharedTests:
     def test_concat_same_type(self):
         data = np.arange(10, dtype="i8") * 24 * 3600 * 10 ** 9
 
-        idx = self.index_cls._simple_new(data, freq="D").insert(0, pd.NaT)
+        arr = self.array_cls._simple_new(data, freq="D")
+        idx = self.index_cls(arr)
+        idx = idx.insert(0, pd.NaT)
         arr = self.array_cls(idx)
 
         result = arr._concat_same_type([arr[:-1], arr[1:], arr])
@@ -217,6 +226,19 @@ class SharedTests:
 
         with pytest.raises(TypeError, match="'value' should be a.* 'object'"):
             arr[0] = object()
+
+    def test_inplace_arithmetic(self):
+        # GH#24115 check that iadd and isub are actually in-place
+        data = np.arange(10, dtype="i8") * 24 * 3600 * 10 ** 9
+        arr = self.array_cls(data, freq="D")
+
+        expected = arr + pd.Timedelta(days=1)
+        arr += pd.Timedelta(days=1)
+        tm.assert_equal(arr, expected)
+
+        expected = arr - pd.Timedelta(days=1)
+        arr -= pd.Timedelta(days=1)
+        tm.assert_equal(arr, expected)
 
 
 class TestDatetimeArray(SharedTests):
@@ -441,7 +463,7 @@ class TestDatetimeArray(SharedTests):
         else:
             other = arr.tz_localize(None)
 
-        with pytest.raises(AssertionError):
+        with pytest.raises(ValueError, match="to_concat must have the same"):
             arr._concat_same_type([arr, other])
 
     def test_concat_same_type_different_freq(self):
@@ -461,6 +483,21 @@ class TestDatetimeArray(SharedTests):
         )
 
         tm.assert_datetime_array_equal(result, expected)
+
+    def test_strftime(self, datetime_index):
+        arr = DatetimeArray(datetime_index)
+
+        result = arr.strftime("%Y %b")
+        expected = np.array([ts.strftime("%Y %b") for ts in arr], dtype=object)
+        tm.assert_numpy_array_equal(result, expected)
+
+    def test_strftime_nat(self):
+        # GH 29578
+        arr = DatetimeArray(DatetimeIndex(["2019-01-01", pd.NaT]))
+
+        result = arr.strftime("%Y-%m-%d")
+        expected = np.array(["2019-01-01", np.nan], dtype=object)
+        tm.assert_numpy_array_equal(result, expected)
 
 
 class TestTimedeltaArray(SharedTests):
@@ -608,6 +645,15 @@ class TestPeriodArray(SharedTests):
         #  an EA-specific tm.assert_ function
         tm.assert_index_equal(pd.Index(result), pd.Index(expected))
 
+    def test_to_timestamp_out_of_bounds(self):
+        # GH#19643 previously overflowed silently
+        pi = pd.period_range("1500", freq="Y", periods=3)
+        with pytest.raises(OutOfBoundsDatetime):
+            pi.to_timestamp()
+
+        with pytest.raises(OutOfBoundsDatetime):
+            pi._data.to_timestamp()
+
     @pytest.mark.parametrize("propname", PeriodArray._bool_ops)
     def test_bool_properties(self, period_index, propname):
         # in this case _bool_ops is just `is_leap_year`
@@ -652,6 +698,21 @@ class TestPeriodArray(SharedTests):
         expected = np.asarray(arr).astype("S20")
         tm.assert_numpy_array_equal(result, expected)
 
+    def test_strftime(self, period_index):
+        arr = PeriodArray(period_index)
+
+        result = arr.strftime("%Y")
+        expected = np.array([per.strftime("%Y") for per in arr], dtype=object)
+        tm.assert_numpy_array_equal(result, expected)
+
+    def test_strftime_nat(self):
+        # GH 29578
+        arr = PeriodArray(PeriodIndex(["2019-01-01", pd.NaT], dtype="period[D]"))
+
+        result = arr.strftime("%Y-%m-%d")
+        expected = np.array(["2019-01-01", np.nan], dtype=object)
+        tm.assert_numpy_array_equal(result, expected)
+
 
 @pytest.mark.parametrize(
     "array,casting_nats",
@@ -682,15 +743,15 @@ def test_casting_nat_setitem_array(array, casting_nats):
     [
         (
             pd.TimedeltaIndex(["1 Day", "3 Hours", "NaT"])._data,
-            (np.datetime64("NaT", "ns"),),
+            (np.datetime64("NaT", "ns"), pd.NaT.value),
         ),
         (
             pd.date_range("2000-01-01", periods=3, freq="D")._data,
-            (np.timedelta64("NaT", "ns"),),
+            (np.timedelta64("NaT", "ns"), pd.NaT.value),
         ),
         (
             pd.period_range("2000-01-01", periods=3, freq="D")._data,
-            (np.datetime64("NaT", "ns"), np.timedelta64("NaT", "ns")),
+            (np.datetime64("NaT", "ns"), np.timedelta64("NaT", "ns"), pd.NaT.value),
         ),
     ],
     ids=lambda x: type(x).__name__,
@@ -699,3 +760,38 @@ def test_invalid_nat_setitem_array(array, non_casting_nats):
     for nat in non_casting_nats:
         with pytest.raises(TypeError):
             array[0] = nat
+
+
+@pytest.mark.parametrize(
+    "array",
+    [
+        pd.date_range("2000", periods=4).array,
+        pd.timedelta_range("2000", periods=4).array,
+    ],
+)
+def test_to_numpy_extra(array):
+    if _np_version_under1p18:
+        # np.isnan(NaT) raises, so use pandas'
+        isnan = pd.isna
+    else:
+        isnan = np.isnan
+
+    array[0] = pd.NaT
+    original = array.copy()
+
+    result = array.to_numpy()
+    assert isnan(result[0])
+
+    result = array.to_numpy(dtype="int64")
+    assert result[0] == -9223372036854775808
+
+    result = array.to_numpy(dtype="int64", na_value=0)
+    assert result[0] == 0
+
+    result = array.to_numpy(na_value=array[1].to_numpy())
+    assert result[0] == result[1]
+
+    result = array.to_numpy(na_value=array[1].to_numpy(copy=False))
+    assert result[0] == result[1]
+
+    tm.assert_equal(array, original)
